@@ -1,4 +1,4 @@
-s3s, Docker Hub image 🦑 + 🐳
+s3s + Docker 🦑 + 🐳
 =====
 
 **s3s** is a script that uploads _Splatoon 3_ battle data from the SplatNet 3 service (part of the Nintendo Switch Online app) to [stat.ink](https://stat.ink/), a site for recording, visualizing, and aggregating statistics from the *Splatoon* series of games.
@@ -10,8 +10,8 @@ Looking to track your _Splatoon 2_ gameplay? See **[splatnet2statink](https://gi
 
 ### Instructions
 
-1. Deploy the stack : ```sudo docker-compose -f docker-compose.yml up -d```
-2. Run the script command the stack : ```docker compose exec python3 python s3s.py -M -r```. Here's the command's parameters list : https://github.com/frozenpandaman/s3s#usage-
+1. Build the image : ```docker compose up -d --build```
+2. Run the script command : ```docker compose exec python3 python s3s.py -M -r```. Here's the command's parameters list : https://github.com/frozenpandaman/s3s#usage-
 
 
 ### Sources
