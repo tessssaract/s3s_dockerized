@@ -8,7 +8,7 @@ s3s + Docker 🦑 + 🐳
 
 1. Build the image : ```docker compose up -d --build```
 2. Retrieve your auth tokens using this script command : ```docker compose exec python3 python s3s.py -M```.
-3. Restart the docker image : ```docker restart s3s``
+3. Restart the docker image : ```docker restart s3s```
 
 
 ### Sources
