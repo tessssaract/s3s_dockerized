@@ -4,9 +4,9 @@ services:
   python3:
     restart: unless-stopped
     build: .
-    container_name: "s3s-python3"
+    container_name: "s3s"
     working_dir: "/root/s3s"
     tty: true
     volumes:
       - ./:/root/s3s
-    command: "python s3s.py -M -r"
+    command: "python s3s.py -M 120 -r"
