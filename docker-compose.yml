@@ -2,10 +2,11 @@ version: "3.6"
 services:
 
   python3:
-    restart: always
+    restart: unless-stopped
     build: .
-    container_name: "python3"
+    container_name: "s3s-python3"
     working_dir: "/root/s3s"
     tty: true
     volumes:
       - ./:/root/s3s
+    command: "python s3s.py -M -r"
