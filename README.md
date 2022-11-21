@@ -1,12 +1,8 @@
-s3s + Docker 🦑 + 🐳
+#s3s + Docker 🦑 + 🐳
 
 
 **s3s** is a script that uploads _Splatoon 3_ battle data from the SplatNet 3 service (part of the Nintendo Switch Online app) to [stat.ink](https://stat.ink/), a site for recording, visualizing, and aggregating statistics from the *Splatoon* series of games.
 
-<<<<<<< HEAD
-=======
-(ja) 日本語版セットアップ手順は[こちら](https://vanillasalt.net/2022/10/10/how-to-use-s3s/)、または[こちら](https://zenn.dev/hibikine/articles/1febb4eb03b604)。
->>>>>>> 4a9de614b11d54dd5e9880f870b23224688b285f
 
 ### Instructions
 
