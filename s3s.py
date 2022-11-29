@@ -11,7 +11,7 @@ import msgpack
 from packaging import version
 import iksm, utils
 
-A_VERSION = "0.2.0"
+A_VERSION = "0.2.1"
 
 DEBUG = False
 
@@ -309,6 +309,7 @@ def fetch_json(which, separate=False, exportall=False, specific=False, numbers_o
 		else:
 			combined = ink_list + salmon_list
 			return combined
+
 
 def fetch_detailed_result(is_vs_history, history_id, swim):
 	'''Helper function for fetch_json().'''
@@ -756,7 +757,7 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None):
 	job = job["coopHistoryDetail"]
 
 	full_id = utils.b64d(job["id"])
-	payload["uuid"] = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id[-52:]))
+	payload["uuid"] = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id))
 
 	payload["stage"] = utils.b64d(job["coopStage"]["id"])
 
@@ -871,9 +872,9 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None):
 	for teammate in job["memberResults"]:
 		players_json.append(teammate)
 
-	for player in players_json:
+	for i, player in enumerate(players_json):
 		player_info = {}
-		player_info["me"] = "yes" if player["player"]["isMyself"] else "no"
+		player_info["me"] = "yes" if i == 0 else "no"
 		player_info["name"] = player["player"]["name"]
 		player_info["number"] = player["player"]["nameId"]
 		player_info["splashtag_title"] = player["player"]["byname"]
@@ -906,7 +907,7 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None):
 		player_info["uniform"] = translate_slop[slop_num]
 
 		try:
-			special_id = utils.b64d(player["specialWeapon"]["id"])
+			special_id = player["specialWeapon"]["weaponId"]
 			player_info["special"] = translate_special[special_id]
 		except TypeError: # player.specialWeapon is null - player dc'd
 			pass
@@ -1243,9 +1244,13 @@ def check_if_missing(which, isblackout, istestrun, skipprefetch):
 							continue
 
 				elif which == "salmon":
-					job_uuid = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id[-52:]))
-					if job_uuid in statink_uploads:
+					old_job_uuid = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id[-52:])) # used to do it incorrectly
+					new_job_uuid = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id))
+					if new_job_uuid in statink_uploads:
 						continue
+					if old_job_uuid in statink_uploads: # extremely low chance of conflicts... but allow force uploading if so
+						if not utils.custom_key_exists("force_uploads", CONFIG_DATA):
+							continue
 
 				if not printed:
 					printed = True
