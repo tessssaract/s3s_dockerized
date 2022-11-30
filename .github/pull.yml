@@ -1,0 +1,9 @@
+version: "1"
+rules:
+  - base: main
+    upstream: frozenpandaman:master
+    mergeMethod: merge
+  	assignees:
+      - aaaldo
+    conflictReviewers:
+      - aaaldo
