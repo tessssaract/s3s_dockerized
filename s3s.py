@@ -11,7 +11,7 @@ import msgpack
 from packaging import version
 import iksm, utils
 
-A_VERSION = "0.3.2"
+A_VERSION = "0.3.3"
 
 DEBUG = False
 
@@ -1038,17 +1038,10 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None, prevre
 		]
 		player_info["disconnected"] = "yes" if all(value == 0 for value in dc_indicators) else "no"
 
-		slop_num = utils.b64d(player["player"]["uniform"]["id"])
-		translate_slop = {
-			1: "orange",
-			2: "green",
-			3: "yellow",
-			4: "pink",
-			5: "blue",
-			6: "black",
-			7: "white"
-		}
-		player_info["uniform"] = translate_slop[slop_num]
+		try:
+			player_info["uniform"] = utils.b64d(player["player"]["uniform"]["id"])
+		except KeyError:
+			print("Could not send unsupported Salmon Run gear data to stat.ink. You may want to delete & re-upload this job later.")
 
 		if player["specialWeapon"]: # if null, player dc'd
 			try:
