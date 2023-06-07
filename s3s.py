@@ -11,7 +11,7 @@ import msgpack
 from packaging import version
 import iksm, utils
 
-A_VERSION = "0.4.0"
+A_VERSION = "0.5.1"
 
 DEBUG = False
 
@@ -223,8 +223,8 @@ def fetch_json(which, separate=False, exportall=False, specific=False, numbers_o
 			queries.append("BankaraBattleHistoriesQuery")
 		if specific in (True, "x"):
 			queries.append("XBattleHistoriesQuery")
-		# if specific in (True, "league"):
-			# queries.append("LeagueBattleHistoriesQuery") # LEAGUE TODO & check query name
+		if specific in (True, "challenge"):
+			queries.append("EventBattleHistoriesQuery")
 		if specific in (True, "private") and not utils.custom_key_exists("ignore_private", CONFIG_DATA):
 			queries.append("PrivateBattleHistoriesQuery")
 		if not specific: # False
@@ -255,6 +255,10 @@ def fetch_json(which, separate=False, exportall=False, specific=False, numbers_o
 			query1_resp = json.loads(query1.text)
 			swim()
 
+			if not query1_resp.get("data"): # catch error
+				print("\nSomething's wrong with one of the query hashes. Ensure s3s is up-to-date, and if this message persists, please open an issue on GitHub.")
+				sys.exit(1)
+
 			# ink battles - latest 50 of any type
 			if "latestBattleHistories" in query1_resp["data"]:
 				for battle_group in query1_resp["data"]["latestBattleHistories"]["historyGroups"]["nodes"]:
@@ -279,6 +283,12 @@ def fetch_json(which, separate=False, exportall=False, specific=False, numbers_o
 				for battle_group in query1_resp["data"]["xBattleHistories"]["historyGroups"]["nodes"]:
 					for battle in battle_group["historyDetails"]["nodes"]:
 						battle_ids.append(battle["id"])
+			# ink battles - latest 50 challenge battles
+			elif "eventBattleHistories" in query1_resp["data"]:
+				needs_sorted = True
+				for battle_group in query1_resp["data"]["eventBattleHistories"]["historyGroups"]["nodes"]:
+					for battle in battle_group["historyDetails"]["nodes"]:
+						battle_ids.append(battle["id"])
 			# ink battles - latest 50 private battles
 			elif "privateBattleHistories" in query1_resp["data"] \
 			and not utils.custom_key_exists("ignore_private", CONFIG_DATA):
@@ -301,7 +311,7 @@ def fetch_json(which, separate=False, exportall=False, specific=False, numbers_o
 
 				salmon_list.extend(thread_pool.map(fetch_detailed_result, [False]*len(job_ids), job_ids, [swim]*len(job_ids)))
 
-				if needs_sorted: # put regular, bankara, and private in order, since they were exported in sequential chunks
+				if needs_sorted: # put regular/bankara/event/private in order, b/c exported in sequential chunks
 					try:
 						ink_list = [x for x in ink_list if x['data']['vsHistoryDetail'] is not None] # just in case
 						ink_list = sorted(ink_list, key=lambda d: d['data']['vsHistoryDetail']['playedTime'])
@@ -494,7 +504,7 @@ def set_scoreboard(battle, tricolor=False):
 
 
 def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
-	'''Converts the Nintendo JSON format for a Turf War/Ranked battle to the stat.ink one.'''
+	'''Converts the Nintendo JSON format for a battle to the stat.ink one.'''
 
 	# https://github.com/fetus-hina/stat.ink/wiki/Spl3-API:-Battle-%EF%BC%8D-Post
 	payload = {}
@@ -524,8 +534,8 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 			payload["lobby"] = "splatfest_challenge" # pro
 	elif mode == "X_MATCH":
 		payload["lobby"] = "xmatch"
-	elif mode == "LEAGUE":
-		pass # TODO
+	elif mode == "LEAGUE": # challenge
+		payload["lobby"] = "event"
 
 	## RULE ##
 	##########
@@ -547,8 +557,8 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 	###########
 	payload["stage"] = utils.b64d(battle["vsStage"]["id"])
 
-	## WEAPON, K/D/A/S, TURF INKED ##
-	#################################
+	## WEAPON, K/D/A/S, PLAYER & TEAM TURF INKED ##
+	###############################################
 	for i, player in enumerate(battle["myTeam"]["players"]): # specified again in set_scoreboard()
 		if player["isMyself"] == True:
 			payload["weapon"]         = utils.b64d(player["weapon"]["id"])
@@ -565,6 +575,17 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 				payload["signal"]        = player["result"]["noroshiTry"] # ultra signal attempts in tricolor TW
 				break
 
+	try:
+		our_team_inked, their_team_inked = 0, 0
+		for player in battle["myTeam"]["players"]:
+			our_team_inked += player["paint"]
+		for player in battle["otherTeams"][0]["players"]:
+			their_team_inked += player["paint"]
+		payload["our_team_inked"] = our_team_inked
+		payload["their_team_inked"] = their_team_inked
+	except: # one of these might be able to be null? doubtful but idk lol
+		pass
+
 	## RESULT ##
 	############
 	result = battle["judgement"]
@@ -576,6 +597,22 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 		payload["result"] = "exempted_lose" # doesn't count toward stats
 	elif result == "DRAW":
 		payload["result"] = "draw"
+
+	## BASIC INFO & TURF WAR ##
+	###########################
+	if rule == "TURF_WAR" or rule == "TRI_COLOR": # could be turf war
+		try:
+			payload["our_team_percent"]   = float(battle["myTeam"]["result"]["paintRatio"]) * 100
+			payload["their_team_percent"] = float(battle["otherTeams"][0]["result"]["paintRatio"]) * 100
+		except: # draw - 'result' is null
+			pass
+	else: # could be a ranked mode
+		try:
+			payload["knockout"] = "no" if battle["knockout"] is None or battle["knockout"] == "NEITHER" else "yes"
+			payload["our_team_count"]   = battle["myTeam"]["result"]["score"]
+			payload["their_team_count"] = battle["otherTeams"][0]["result"]["score"]
+		except: # draw - 'result' is null
+			pass
 
 	## START/END TIMES ##
 	#####################
@@ -596,7 +633,12 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 	## SPLATFEST ##
 	###############
 	if mode == "FEST":
-		times_battle = battle["festMatch"]["dragonMatchType"] # NORMAL (1x), DECUPLE (10x), DRAGON (100x), DOUBLE_DRAGON (333x)
+		# paint %ages set in 'basic info'
+		payload["our_team_theme"]   = battle["myTeam"]["festTeamName"]
+		payload["their_team_theme"] = battle["otherTeams"][0]["festTeamName"]
+
+		# NORMAL (1x), DECUPLE (10x), DRAGON (100x), DOUBLE_DRAGON (333x)
+		times_battle = battle["festMatch"]["dragonMatchType"]
 		if times_battle == "DECUPLE":
 			payload["fest_dragon"] = "10x"
 		elif times_battle == "DRAGON":
@@ -606,27 +648,6 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 
 		payload["clout_change"] = battle["festMatch"]["contribution"]
 		payload["fest_power"]   = battle["festMatch"]["myFestPower"] # pro only
-
-	## TURF WAR ##
-	##############
-	if mode in ("REGULAR", "FEST"):
-		try:
-			payload["our_team_percent"]   = float(battle["myTeam"]["result"]["paintRatio"]) * 100
-			payload["their_team_percent"] = float(battle["otherTeams"][0]["result"]["paintRatio"]) * 100
-		except TypeError: # draw - 'result' is null
-			pass
-
-		our_team_inked, their_team_inked = 0, 0
-		for player in battle["myTeam"]["players"]:
-			our_team_inked += player["paint"]
-		for player in battle["otherTeams"][0]["players"]:
-			their_team_inked += player["paint"]
-		payload["our_team_inked"] = our_team_inked
-		payload["their_team_inked"] = their_team_inked
-
-		if mode == "FEST":
-			payload["our_team_theme"]   = battle["myTeam"]["festTeamName"]
-			payload["their_team_theme"] = battle["otherTeams"][0]["festTeamName"]
 
 	## TRICOLOR TW ##
 	#################
@@ -647,36 +668,10 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 		payload["their_team_role"] = utils.convert_tricolor_role(battle["otherTeams"][0]["tricolorRole"])
 		payload["third_team_role"] = utils.convert_tricolor_role(battle["otherTeams"][1]["tricolorRole"])
 
-	## PRIVATE BATTLES ##
-	#####################
-	if mode == "PRIVATE": # these don't get sent otherwise. no support for private tricolor battles atm
-		# could be a ranked mode
-		try:
-			payload["knockout"] = "no" if battle["knockout"] is None or battle["knockout"] == "NEITHER" else "yes"
-		except:
-			pass
-		try:
-			payload["our_team_count"]   = battle["myTeam"]["result"]["score"]
-			payload["their_team_count"] = battle["otherTeams"][0]["result"]["score"]
-		except:
-			pass
-		# could also be tw
-		try:
-			payload["our_team_percent"]   = float(battle["myTeam"]["result"]["paintRatio"]) * 100
-			payload["their_team_percent"] = float(battle["otherTeams"][0]["result"]["paintRatio"]) * 100
-		except:
-			pass
-
 	## ANARCHY BATTLES ##
 	#####################
 	if mode == "BANKARA":
-		try:
-			payload["our_team_count"]   = battle["myTeam"]["result"]["score"]
-			payload["their_team_count"] = battle["otherTeams"][0]["result"]["score"]
-		except: # draw - 'result' is null
-			pass
-
-		payload["knockout"] = "no" if battle["knockout"] is None or battle["knockout"] == "NEITHER" else "yes"
+		# counts & knockout set in 'basic info'
 		payload["rank_exp_change"] = battle["bankaraMatch"]["earnedUdemaePoint"]
 
 		battle_id         = base64.b64decode(battle["id"]).decode('utf-8')
@@ -703,8 +698,9 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 			for parent in ranked_list: # groups in overview (anarchy tab) JSON/screen
 				for idx, child in enumerate(parent["historyDetails"]["nodes"]):
 
+					# same battle, different screens
 					overview_battle_id         = base64.b64decode(child["id"]).decode('utf-8')
-					overview_battle_id_mutated = overview_battle_id.replace("BANKARA", "RECENT") # same battle, different screens
+					overview_battle_id_mutated = overview_battle_id.replace("BANKARA", "RECENT")
 
 					if overview_battle_id_mutated == battle_id_mutated: # found the battle ID in the other file
 						full_rank = re.split('([0-9]+)', child["udemae"].lower())
@@ -761,16 +757,9 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 	## X BATTLES ##
 	###############
 	if mode == "X_MATCH":
-		try:
-			payload["our_team_count"]   = battle["myTeam"]["result"]["score"]
-			payload["their_team_count"] = battle["otherTeams"][0]["result"]["score"]
-		except: # draw
-			pass
-
+		# counts & knockout set in 'basic info'
 		if battle["xMatch"]["lastXPower"] is not None:
 			payload["x_power_before"] = battle["xMatch"]["lastXPower"]
-
-		payload["knockout"] = "no" if battle["knockout"] is None or battle["knockout"] == "NEITHER" else "yes"
 
 		battle_id         = base64.b64decode(battle["id"]).decode('utf-8')
 		battle_id_mutated = battle_id.replace("XMATCH", "RECENT")
@@ -805,6 +794,15 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 							if parent["xMatchMeasurement"]["state"] == "COMPLETED":
 								payload["x_power_after"] = parent["xMatchMeasurement"]["xPowerAfter"]
 							break
+
+	## CHALLENGES ##
+	################
+	if mode == "LEAGUE":
+		payload["event"] = battle["leagueMatch"]["leagueMatchEvent"]["id"] # send in Base64
+		payload["event_power"] = battle["leagueMatch"]["myLeaguePower"]
+		# luckily no need to look at overview screen for any info
+
+		# to check: any ranked-specific stuff for challenges in battle.leagueMatch...?
 
 	## MEDALS ##
 	############
@@ -1204,6 +1202,9 @@ def post_result(data, ismonitoring, isblackout, istestrun, overview_data=None):
 			print(json.dumps(results))
 			sys.exit(1) # always exit here - something is seriously wrong
 
+		if not payload: # empty payload
+			return
+
 		if len(payload) == 0: # received blank payload from prepare_job_result() - skip unsupported battle
 			continue
 
@@ -1342,25 +1343,27 @@ def get_num_results(which):
 
 	noun = utils.set_noun(which)
 	try:
-		if which == "ink": # TODO update '200' number when league released
-			print("Note: 50 recent battles of each type (up to 200 total) may be uploaded by instead manually exporting data with " \
-				'\033[91m' + "-o" + '\033[0m' + ".\n")
+		if which == "ink":
+			print(f"Note: This is an atypical way to run the script for manually uploading recent data. " \
+				"recent battles. Up to 250 results (50 of each type) may be uploaded instead by using " \
+				'\033[91m' + "-r" + '\033[0m' + ".\n")
 		n = int(input(f"Number of recent {noun} to upload (0-50)? "))
 	except ValueError:
 		print("Please enter an integer between 0 and 50. Exiting.")
 		sys.exit(0)
-	if n < 1:
+	if n == 0:
 		print("Exiting without uploading anything.")
+		sys.exit(0)
+	elif n < 0:
+		print("No.")
 		sys.exit(0)
 	elif n > 50:
 		if which == "salmon":
 			print("SplatNet 3 only stores the 50 most recent jobs. Exiting.")
 		elif which == "ink":
-			print("\nIn this mode, s3s can only fetch the 50 most recent battles (of any type) at once. " \
-				"To export & upload the 50 most recent battles of each type " \
-				"(Regular, Anarchy, X, and Private) for up to 200 results total, run the script with " \
-				'\033[91m' + "-o" + '\033[0m' + " and then " \
-				'\033[91m' + "-i results.json overview.json" + '\033[0m' + ".")
+			print("In this mode, s3s can only fetch the 50 most recent battles (of any type) at once. " \
+				"Run the script with " \
+				'\033[91m' + "-r" + '\033[0m' + " to fetch more than 50 results. Exiting.")
 		sys.exit(0)
 	else:
 		return n
@@ -1412,7 +1415,7 @@ def check_if_missing(which, isblackout, istestrun, skipprefetch):
 	# https://github.com/fetus-hina/stat.ink/wiki/Spl3-API:-Battle-%EF%BC%8D-Get-UUID-List-(for-s3s)
 	# https://github.com/fetus-hina/stat.ink/wiki/Spl3-API:-Salmon-%EF%BC%8D-Get-UUID-List
 	if which in ("both", "ink"):
-		urls.append("https://stat.ink/api/v3/s3s/uuid-list") # max 200 entries
+		urls.append("https://stat.ink/api/v3/s3s/uuid-list?lobby=adaptive") # max 250 entries
 	else:
 		urls.append(None)
 	if which in ("both", "salmon"):
@@ -1426,7 +1429,7 @@ def check_if_missing(which, isblackout, istestrun, skipprefetch):
 		if url is not None:
 			printed = False
 			auth = {'Authorization': f'Bearer {API_KEY}'}
-			resp = requests.get(url, headers=auth) # no params = all: regular, bankara, private
+			resp = requests.get(url, headers=auth)
 			try:
 				statink_uploads = json.loads(resp.text)
 			except:
@@ -1459,7 +1462,7 @@ def check_if_missing(which, isblackout, istestrun, skipprefetch):
 					new_job_uuid = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id))
 					if new_job_uuid in statink_uploads:
 						continue
-					if old_job_uuid in statink_uploads: # extremely low chance of conflicts... but allow force uploading if so
+					if old_job_uuid in statink_uploads: # extremely low chance of conflicts... but force upload if so
 						if not utils.custom_key_exists("force_uploads", CONFIG_DATA):
 							continue
 
@@ -1508,7 +1511,8 @@ def check_for_new_results(which, cached_battles, cached_jobs, battle_wins, battl
 					splatfest_match = True if result["data"]["vsHistoryDetail"]["vsMode"]["mode"] == "FEST" else False
 					if splatfest_match: # keys will exist
 						our_team_name = result["data"]["vsHistoryDetail"]["myTeam"]["festTeamName"]
-						their_team_name = result["data"]["vsHistoryDetail"]["otherTeams"][0]["festTeamName"] # no tricolor support
+						their_team_name = result["data"]["vsHistoryDetail"]["otherTeams"][0]["festTeamName"]
+						# works for tricolor too, since all teams would be the same
 						mirror_match = True if our_team_name == their_team_name else False
 					if outcome == "Victory":
 						battle_wins += 1
@@ -1547,7 +1551,7 @@ def check_for_new_results(which, cached_battles, cached_jobs, battle_wins, battl
 					cookies=dict(_gtoken=GTOKEN))
 				result = json.loads(result_post.text)
 
-				if result["data"]["coopHistoryDetail"]["jobPoint"] == None \
+				if result["data"]["coopHistoryDetail"]["jobPoint"] is None \
 				and utils.custom_key_exists("ignore_private_jobs", CONFIG_DATA): # works pre- and post-2.0.0
 					pass
 				else:
@@ -1756,7 +1760,7 @@ def parse_arguments():
 	parser.add_argument("-M", dest="N", required=False, nargs="?", action="store",
 		help="monitoring mode; pull data every N secs (default: 300)", const=300)
 	parser.add_argument("-r", required=False, action="store_true",
-		help="retroactively post unuploaded battles/jobs")
+		help="check for & upload battles/jobs missing from stat.ink")
 	srgroup.add_argument("-nsr", required=False, action="store_true",
 		help="do not check for Salmon Run jobs")
 	srgroup.add_argument("-osr", required=False, action="store_true",
@@ -1780,15 +1784,15 @@ def main():
 
 	print('\033[93m\033[1m' + "s3s" + '\033[0m\033[93m' + f" v{A_VERSION}" + '\033[0m')
 
+	# argparse setup
+	################
+	parser_result = parse_arguments()
+
 	# setup
 	#######
 	check_for_updates()
 	check_statink_key()
 	set_language()
-
-	# argparse setup
-	################
-	parser_result = parse_arguments()
 
 	# regular args
 	n_value     = parser_result.N
@@ -1842,7 +1846,7 @@ def main():
 		if not skipprefetch:
 			prefetch_checks(printout=True)
 		print("Fetching your JSON files to export locally. This might take a while...")
-		# fetch_json() calls prefetch_checks() to gen or check tokens
+		# ! fetch from online - fetch_json() calls prefetch_checks() to gen or check tokens
 		parents, results, coop_results = fetch_json("both", separate=True, exportall=True, specific=True, skipprefetch=True)
 
 		cwd = os.getcwd()
@@ -1944,7 +1948,7 @@ def main():
 
 		# only upload unuploaded results
 		auth = {'Authorization': f'Bearer {API_KEY}'}
-		resp_b = requests.get("https://stat.ink/api/v3/s3s/uuid-list", headers=auth)
+		resp_b = requests.get("https://stat.ink/api/v3/s3s/uuid-list?lobby=adaptive", headers=auth)
 		resp_j = requests.get("https://stat.ink/api/v3/salmon/uuid-list", headers=auth)
 		try:
 			statink_uploads = json.loads(resp_b.text)
