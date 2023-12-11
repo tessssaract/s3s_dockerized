@@ -11,7 +11,7 @@ import msgpack
 from packaging import version
 import iksm, utils
 
-A_VERSION = "0.5.3"
+A_VERSION = "0.6.0"
 
 DEBUG = False
 
@@ -123,7 +123,7 @@ def prefetch_checks(printout=False):
 		gen_new_tokens("blank")
 
 	sha = utils.translate_rid["HomeQuery"]
-	test = requests.post(utils.GRAPHQL_URL, data=utils.gen_graphql_body(sha), headers=headbutt(), cookies=dict(_gtoken=GTOKEN))
+	test = requests.post(iksm.GRAPHQL_URL, data=utils.gen_graphql_body(sha), headers=headbutt(), cookies=dict(_gtoken=GTOKEN))
 	if test.status_code != 200:
 		if printout:
 			print("\n")
@@ -248,7 +248,7 @@ def fetch_json(which, separate=False, exportall=False, specific=False, numbers_o
 			sha = utils.translate_rid[sha]
 			battle_ids, job_ids = [], []
 
-			query1 = requests.post(utils.GRAPHQL_URL,
+			query1 = requests.post(iksm.GRAPHQL_URL,
 				data=utils.gen_graphql_body(sha),
 				headers=headbutt(forcelang=lang),
 				cookies=dict(_gtoken=GTOKEN))
@@ -343,7 +343,7 @@ def fetch_detailed_result(is_vs_history, history_id, swim):
 	varname = "vsResultId" if is_vs_history else "coopHistoryDetailId"
 	lang = None if is_vs_history else 'en-US'
 
-	query2 = requests.post(utils.GRAPHQL_URL,
+	query2 = requests.post(iksm.GRAPHQL_URL,
 		data=utils.gen_graphql_body(utils.translate_rid[sha], varname, history_id),
 		headers=headbutt(forcelang=lang),
 		cookies=dict(_gtoken=GTOKEN))
@@ -351,40 +351,6 @@ def fetch_detailed_result(is_vs_history, history_id, swim):
 
 	swim()
 	return query2_resp
-
-
-def update_salmon_profile():
-	''' Updates stat.ink Salmon Run stats/profile.'''
-
-	pass
-	# prefetch_checks()
-
-	# results_list = requests.post(utils.GRAPHQL_URL,
-	# 	data=utils.gen_graphql_body(utils.translate_rid["CoopHistoryQuery"]),
-	# 	headers=headbutt(forcelang='en-US'),
-	# 	cookies=dict(_gtoken=GTOKEN))
-	# data = json.loads(results_list.text)
-	# profile = data["..."]
-
-	# payload:
-	# current points
-	# jobs (shifts) worked
-	# golden eggs collected
-	# power eggs colleted
-	# king salmonids defeated
-	# crew members rescued
-	# total points
-	# current number of scales
-
-	# url = "https://stat.ink/api/v2/salmon-stats"
-	# auth = {'Authorization': f'Bearer {API_KEY}'}
-	# updateprofile = requests.post(url, headers=auth, data=payload)
-
-	# if updateprofile.ok:
-	# 	print("Successfully updated your Salmon Run profile.")
-	# else:
-	# 	print("Could not update your Salmon Run profile. Error from stat.ink:")
-	# 	print(updateprofile.text)
 
 
 def populate_gear_abilities(player):
@@ -426,7 +392,6 @@ def set_scoreboard(battle, tricolor=False):
 	# https://github.com/fetus-hina/stat.ink/wiki/Spl3-API:-Battle-%EF%BC%8D-Post#player-structure
 	our_team_players, their_team_players, third_team_players = [], [], []
 
-	# not supported yet: species, festDragonCert
 	for i, player in enumerate(battle["myTeam"]["players"]):
 		p_dict = {}
 		p_dict["me"]              = "yes" if player["isMyself"] else "no"
@@ -438,7 +403,17 @@ def set_scoreboard(battle, tricolor=False):
 		p_dict["splashtag_title"] = player["byname"] # splashtag title
 		p_dict["weapon"]          = utils.b64d(player["weapon"]["id"])
 		p_dict["inked"]           = player["paint"]
+		p_dict["species"]         = player["species"].lower()
 		p_dict["rank_in_team"]    = i+1
+
+		if player.get("crown"):
+			p_dict["crown_type"] = "x"
+		if "DRAGON" in player.get("festDragonCert", ""):
+			if player["festDragonCert"] == "DRAGON":
+				p_dict["crown_type"] = "100x"
+			elif player["festDragonCert"] == "DOUBLE_DRAGON":
+				p_dict["crown_type"] = "333x"
+
 		if "result" in player and player["result"] is not None:
 			p_dict["kill_or_assist"] = player["result"]["kill"]
 			p_dict["assist"]         = player["result"]["assist"]
@@ -473,7 +448,17 @@ def set_scoreboard(battle, tricolor=False):
 			p_dict["splashtag_title"] = player["byname"]
 			p_dict["weapon"]          = utils.b64d(player["weapon"]["id"])
 			p_dict["inked"]           = player["paint"]
+			p_dict["species"]         = player["species"].lower()
 			p_dict["rank_in_team"]    = i+1
+
+			if player.get("crown"):
+				p_dict["crown_type"] = "x"
+			if "DRAGON" in player.get("festDragonCert", ""):
+				if player["festDragonCert"] == "DRAGON":
+					p_dict["crown_type"] = "100x"
+				elif player["festDragonCert"] == "DOUBLE_DRAGON":
+					p_dict["crown_type"] = "333x"
+
 			if "result" in player and player["result"] is not None:
 				p_dict["kill_or_assist"] = player["result"]["kill"]
 				p_dict["assist"]         = player["result"]["assist"]
@@ -563,9 +548,10 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 		if player["isMyself"] == True:
 			payload["weapon"]         = utils.b64d(player["weapon"]["id"])
 			payload["inked"]          = player["paint"]
-			payload["species"]        = player["species"].lower() # not supported for now
+			payload["species"]        = player["species"].lower()
 			payload["rank_in_team"]   = i+1
-			# ...        = player["result"]["festDragonCert"] NONE, DRAGON, or DOUBLE_DRAGON - splatfest
+			# crowns (x rank and splatfest 'dragon') set in set_scoreboard()
+
 			if player["result"] is not None: # null if player disconnect
 				payload["kill_or_assist"] = player["result"]["kill"]
 				payload["assist"]         = player["result"]["assist"]
@@ -683,7 +669,7 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 		battle_id_mutated = battle_id.replace("BANKARA", "RECENT") # normalize the ID, make work with -M and -r
 
 		if overview_data is None: # no passed in file with -i
-			overview_post = requests.post(utils.GRAPHQL_URL,
+			overview_post = requests.post(iksm.GRAPHQL_URL,
 				data=utils.gen_graphql_body(utils.translate_rid["BankaraBattleHistoriesQuery"]),
 				headers=headbutt(),
 				cookies=dict(_gtoken=GTOKEN))
@@ -770,7 +756,7 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 		battle_id_mutated = battle_id.replace("XMATCH", "RECENT")
 
 		if overview_data is None: # no passed in file with -i
-			overview_post = requests.post(utils.GRAPHQL_URL,
+			overview_post = requests.post(iksm.GRAPHQL_URL,
 				data=utils.gen_graphql_body(utils.translate_rid["XBattleHistoriesQuery"]),
 				headers=headbutt(),
 				cookies=dict(_gtoken=GTOKEN))
@@ -815,17 +801,6 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 	for medal in battle["awards"]:
 		medals.append(medal["name"])
 	payload["medals"] = medals
-
-	## SCREENSHOTS ##
-	#################
-	# TODO - change to require -ss option?
-	# im = utils_ss.screenshot(battle["id"])
-
-	# scoreboard
-	# payload["image_result"] = BytesIO(im.content).getvalue()
-
-	# gear
-	# payload["image_gear"] = ...
 
 	# no way to get: level_before/after, cash_before/after
 
@@ -930,7 +905,7 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None, prevre
 						except KeyError: # prev job was private or disconnect
 							pass
 			else:
-				prev_job_post = requests.post(utils.GRAPHQL_URL,
+				prev_job_post = requests.post(iksm.GRAPHQL_URL,
 					data=utils.gen_graphql_body(utils.translate_rid["CoopHistoryDetailQuery"], "coopHistoryDetailId", prev_job_id),
 					headers=headbutt(forcelang='en-US'),
 					cookies=dict(_gtoken=GTOKEN))
@@ -970,6 +945,8 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None, prevre
 	payload["job_point"] = job["jobPoint"] # your points = floor((score x rate) + bonus)
 	# note the current bug with "bonus" lol... https://github.com/frozenpandaman/s3s/wiki/%7C-splatnet-bugs
 
+	# species sent in player struct
+
 	translate_special = { # used in players and waves below
 		20006: "nicedama",
 		20007: "hopsonar",
@@ -977,7 +954,9 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None, prevre
 		20010: "jetpack",
 		20012: "kanitank",
 		20013: "sameride",
-		20014: "tripletornado"
+		20014: "tripletornado",
+		20017: "teioika",
+		20018: "ultra_chakuchi"
 	}
 
 	players = []
@@ -987,16 +966,17 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None, prevre
 
 	for i, player in enumerate(players_json):
 		player_info = {}
-		player_info["me"] = "yes" if i == 0 else "no"
-		player_info["name"] = player["player"]["name"]
-		player_info["number"] = player["player"]["nameId"]
+		player_info["me"]              = "yes" if i == 0 else "no"
+		player_info["name"]            = player["player"]["name"]
+		player_info["number"]          = player["player"]["nameId"]
 		player_info["splashtag_title"] = player["player"]["byname"]
-		player_info["golden_eggs"] = player["goldenDeliverCount"]
-		player_info["golden_assist"] = player["goldenAssistCount"]
-		player_info["power_eggs"] = player["deliverCount"]
-		player_info["rescue"] = player["rescueCount"]
-		player_info["rescued"] = player["rescuedCount"]
-		player_info["defeat_boss"] = player["defeatEnemyCount"]
+		player_info["golden_eggs"]     = player["goldenDeliverCount"]
+		player_info["golden_assist"]   = player["goldenAssistCount"]
+		player_info["power_eggs"]      = player["deliverCount"]
+		player_info["rescue"]          = player["rescueCount"]
+		player_info["rescued"]         = player["rescuedCount"]
+		player_info["defeat_boss"]     = player["defeatEnemyCount"]
+		player_info["species"]         = player["player"]["species"].lower()
 
 		dc_indicators = [
 			player_info["golden_eggs"],
@@ -1107,6 +1087,8 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None, prevre
 			"kanitank": 0,
 			"sameride": 0,
 			"tripletornado": 0,
+			"teioika": 0,
+			"ultra_chakuchi": 0,
 			"unknown": 0
 		}
 		for wep_use in wave["specialWeapons"]:
@@ -1254,20 +1236,26 @@ def post_result(data, ismonitoring, isblackout, istestrun, overview_data=None):
 			except:
 				print("Error with stat.ink. Please try again.")
 
+		detail_type = "vsHistoryDetail" if which == "ink" else "coopHistoryDetail"
+		result_id = results[i]["data"][detail_type]["id"]
+		noun = utils.set_noun(which)[:-1]
+
 		if DEBUG:
 			print(f"* time uploaded: {time_uploaded}; time now: {time_now}")
 
-		if postbattle.status_code != 201: # Created (or already exists)
-			print(f"Error uploading {utils.set_noun(which)[:-1]}.")
-			detail_type = "vsHistoryDetail" if which == "ink" else "coopHistoryDetail"
-			result_id = results[i]["data"][detail_type]["id"]
-			print(f"{utils.set_noun(which)[:-1].capitalize()} ID: {result_id}")
+		if istestrun and postbattle.status_code == 200:
+			print(f"Successfully validated {noun} ID {result_id} with stat.ink.")
+
+		elif postbattle.status_code != 201: # Created (or already exists)
+			print(f"Error uploading {noun}. (ID: {result_id})")
 			print("Message from server:")
 			print(postbattle.content.decode('utf-8'))
+
 		elif time_uploaded <= time_now - 7: # give some leeway
-			print(f"{utils.set_noun(which)[:-1].capitalize()} already uploaded - {headerloc}")
+			print(f"{noun.capitalize()} already uploaded - {headerloc}")
+
 		else: # 200 OK
-			print(f"{utils.set_noun(which)[:-1].capitalize()} uploaded to {headerloc}")
+			print(f"{noun.capitalize()} uploaded to {headerloc}")
 
 
 def check_for_updates():
@@ -1391,7 +1379,7 @@ def fetch_and_upload_single_result(hash, noun, isblackout, istestrun):
 		dict_key2 = "coopHistoryDetailId"
 		lang = 'en-US'
 
-	result_post = requests.post(utils.GRAPHQL_URL,
+	result_post = requests.post(iksm.GRAPHQL_URL,
 			data=utils.gen_graphql_body(utils.translate_rid[dict_key], dict_key2, hash),
 			headers=headbutt(forcelang=lang),
 			cookies=dict(_gtoken=GTOKEN))
@@ -1399,7 +1387,7 @@ def fetch_and_upload_single_result(hash, noun, isblackout, istestrun):
 		result = json.loads(result_post.text)
 		post_result(result, False, isblackout, istestrun) # not monitoring mode
 	except json.decoder.JSONDecodeError: # retry once, hopefully avoid a few errors
-		result_post = requests.post(utils.GRAPHQL_URL,
+		result_post = requests.post(iksm.GRAPHQL_URL,
 				data=utils.gen_graphql_body(utils.translate_rid[dict_key], dict_key2, hash),
 				headers=headbutt(forcelang=lang),
 				cookies=dict(_gtoken=GTOKEN))
@@ -1494,14 +1482,18 @@ def check_for_new_results(which, cached_battles, cached_jobs, battle_wins, battl
 
 	# ! fetch from online
 	# check only numbers (quicker); specific=False since checks recent (latest) only
-	ink_results, salmon_results = fetch_json(which, separate=True, numbers_only=True)
+	try:
+		ink_results, salmon_results = fetch_json(which, separate=True, numbers_only=True)
+	except: # e.g. JSONDecodeError - tokens have probably expired
+		gen_new_tokens("expiry") # we don't have to do prefetch_checks(), we know they're expired. gen new ones and try again
+		ink_results, salmon_results = fetch_json(which, separate=True, numbers_only=True)
 	foundany = False
 
 	if which in ("both", "ink"):
 		for num in reversed(ink_results):
 			if num not in cached_battles:
 				# get the full battle data
-				result_post = requests.post(utils.GRAPHQL_URL,
+				result_post = requests.post(iksm.GRAPHQL_URL,
 					data=utils.gen_graphql_body(utils.translate_rid["VsHistoryDetailQuery"], "vsResultId", num),
 					headers=headbutt(),
 					cookies=dict(_gtoken=GTOKEN))
@@ -1557,7 +1549,7 @@ def check_for_new_results(which, cached_battles, cached_jobs, battle_wins, battl
 		for num in reversed(salmon_results):
 			if num not in cached_jobs:
 				# get the full job data
-				result_post = requests.post(utils.GRAPHQL_URL,
+				result_post = requests.post(iksm.GRAPHQL_URL,
 					data=utils.gen_graphql_body(utils.translate_rid["CoopHistoryDetailQuery"], "coopHistoryDetailId", num),
 					headers=headbutt(forcelang='en-US'),
 					cookies=dict(_gtoken=GTOKEN))
@@ -1625,7 +1617,7 @@ def monitor_battles(which, secs, isblackout, istestrun, skipprefetch):
 				job_successes, job_failures,
 				isblackout, istestrun
 			]
-			which, cached_battles, cached_jobs, battle_wins, battle_losses, battle_draws, splatfest_wins, splatfest_losses, splatfest_draws, mirror_matches, job_successes, job_failures, foundany = check_for_new_results(*input_params)
+			which, cached_battles, cached_jobs, battle_wins, battle_losses, battle_draws, splatfest_wins, splatfest_losses, splatfest_draws, mirror_matches, job_successes, job_failures, foundany=check_for_new_results(*input_params)
 
 	except KeyboardInterrupt:
 		print(f"\n\nChecking to see if there are unuploaded {utils.set_noun(which)} before exiting...")
@@ -1638,15 +1630,13 @@ def monitor_battles(which, secs, isblackout, istestrun, skipprefetch):
 			job_successes, job_failures,
 			isblackout, istestrun
 		]
-		which, cached_battles, cached_jobs, battle_wins, battle_losses, battle_draws, splatfest_wins, splatfest_losses, splatfest_draws, mirror_matches, job_successes, job_failures, foundany = check_for_new_results(*input_params)
+		which, cached_battles, cached_jobs, battle_wins, battle_losses, battle_draws, splatfest_wins, splatfest_losses, splatfest_draws, mirror_matches, job_successes, job_failures, foundany=check_for_new_results(*input_params)
 
 		noun = utils.set_noun(which)
 		if foundany:
 			print(f"Successfully uploaded remaining {noun}.")
 		else:
 			print(f"No remaining {noun} found.")
-
-		# SR TODO - update_salmon_profile()
 
 		print("\n== SESSION REPORT ==")
 		if which in ("ink", "both"):
@@ -1710,11 +1700,11 @@ def export_seed_json(skipprefetch=False):
 		prefetch_checks(printout=True)
 
 	sha = utils.translate_rid["MyOutfitCommonDataEquipmentsQuery"]
-	outfit_post = requests.post(utils.GRAPHQL_URL, data=utils.gen_graphql_body(sha),
+	outfit_post = requests.post(iksm.GRAPHQL_URL, data=utils.gen_graphql_body(sha),
 		headers=headbutt(), cookies=dict(_gtoken=GTOKEN))
 
 	sha = utils.translate_rid["LatestBattleHistoriesQuery"]
-	history_post = requests.post(utils.GRAPHQL_URL, data=utils.gen_graphql_body(sha),
+	history_post = requests.post(iksm.GRAPHQL_URL, data=utils.gen_graphql_body(sha),
 		headers=headbutt(), cookies=dict(_gtoken=GTOKEN))
 
 	if outfit_post.status_code != 200 or history_post.status_code != 200:
@@ -1735,7 +1725,7 @@ def export_seed_json(skipprefetch=False):
 	except KeyError: # no recent battles (mr. grizz is pleased)
 		try:
 			sha = utils.translate_rid["CoopHistoryQuery"]
-			history_post = requests.post(utils.GRAPHQL_URL, data=utils.gen_graphql_body(sha),
+			history_post = requests.post(iksm.GRAPHQL_URL, data=utils.gen_graphql_body(sha),
 				headers=headbutt(), cookies=dict(_gtoken=GTOKEN))
 
 			if history_post.status_code != 200:
@@ -2012,8 +2002,8 @@ def main():
 	#############
 	which = "ink" if only_ink else "salmon" if only_salmon else "both"
 
-	if which in ("salmon", "both"):
-		update_salmon_profile()
+	# if which in ("salmon", "both"):
+	# 	update_salmon_profile() # not a thing for spl3, done on stat.ink's end
 
 	if check_old:
 		if which == "both":
