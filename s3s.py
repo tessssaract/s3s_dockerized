@@ -11,7 +11,7 @@ import msgpack
 from packaging import version
 import iksm, utils
 
-A_VERSION = "0.6.0"
+A_VERSION = "0.6.1"
 
 DEBUG = False
 
@@ -53,9 +53,9 @@ F_GEN_URL     = CONFIG_DATA["f_gen"]         # endpoint for generating f (imink 
 thread_pool = ThreadPoolExecutor(max_workers=2)
 
 # SET HTTP HEADERS
-DEFAULT_USER_AGENT = 'Mozilla/5.0 (Linux; Android 11; Pixel 5) ' \
+DEFAULT_USER_AGENT = 'Mozilla/5.0 (Linux; Android 14; Pixel 7a) ' \
 						'AppleWebKit/537.36 (KHTML, like Gecko) ' \
-						'Chrome/94.0.4606.61 Mobile Safari/537.36'
+						'Chrome/120.0.6099.230 Mobile Safari/537.36'
 APP_USER_AGENT = str(CONFIG_DATA.get("app_user_agent", DEFAULT_USER_AGENT))
 
 
@@ -1761,6 +1761,8 @@ def parse_arguments():
 	srgroup = parser.add_mutually_exclusive_group()
 	parser.add_argument("-M", dest="N", required=False, nargs="?", action="store",
 		help="monitoring mode; pull data every N secs (default: 300)", const=300)
+	parser.add_argument("-m", dest="N", required=False, nargs="?", action="store",
+		help=argparse.SUPPRESS, const=300)
 	parser.add_argument("-r", required=False, action="store_true",
 		help="check for & upload battles/jobs missing from stat.ink")
 	srgroup.add_argument("-nsr", required=False, action="store_true",
@@ -1790,12 +1792,6 @@ def main():
 	################
 	parser_result = parse_arguments()
 
-	# setup
-	#######
-	check_for_updates()
-	check_statink_key()
-	set_language()
-
 	# regular args
 	n_value     = parser_result.N
 	check_old   = parser_result.r
@@ -1809,6 +1805,13 @@ def main():
 	file_paths   = parser_result.path         # intended for results/ or coop_results/ AND overview.json
 	outfile      = parser_result.o            # output to local files
 	skipprefetch = parser_result.skipprefetch # skip prefetch checks to ensure token validity
+
+	# setup
+	#######
+	check_for_updates()
+	if not getseed:
+		check_statink_key()
+	set_language()
 
 	# i/o checks
 	############
