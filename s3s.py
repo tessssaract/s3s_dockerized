@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 # s3s (ↄ) 2022-2024 eli fessler (frozenpandaman), clovervidia
-# Based on splatnet2statink (ↄ) 2017-2023 eli fessler (frozenpandaman), clovervidia
+# Based on splatnet2statink (ↄ) 2017-2024 eli fessler (frozenpandaman), clovervidia
 # https://github.com/frozenpandaman/s3s
 # License: GPLv3
 
-import argparse, base64, datetime, json, os, shutil, re, requests, sys, time, uuid
+import argparse, base64, datetime, json, os, shutil, re, sys, time, uuid
 from concurrent.futures import ThreadPoolExecutor
 from subprocess import call
-import msgpack
+import requests, msgpack
 from packaging import version
 import iksm, utils
 
-A_VERSION = "0.6.2"
+A_VERSION = "0.6.5"
 
 DEBUG = False
 
@@ -148,7 +148,7 @@ def gen_new_tokens(reason, force=False):
 
 	if SESSION_TOKEN == "":
 		print("Please log in to your Nintendo Account to obtain your session_token.")
-		new_token = iksm.log_in(A_VERSION, APP_USER_AGENT)
+		new_token = iksm.log_in(A_VERSION, APP_USER_AGENT, F_GEN_URL)
 		if new_token is None:
 			print("There was a problem logging you in. Please try again later.")
 		elif new_token == "skip":
@@ -679,6 +679,7 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 				overview_data = None
 				print("Failed to get recent Anarchy Battles. Proceeding without information on current rank.")
 		if overview_data is not None:
+			ranked_list = []
 			for screen in overview_data:
 				if "bankaraBattleHistories" in screen["data"]:
 					ranked_list = screen["data"]["bankaraBattleHistories"]["historyGroups"]["nodes"]
@@ -766,6 +767,7 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 				overview_data = None
 				print("Failed to get recent X Battles. Proceeding without some information on X Power.")
 		if overview_data is not None:
+			x_list = []
 			for screen in overview_data:
 				if "xBattleHistories" in screen["data"]:
 					x_list = screen["data"]["xBattleHistories"]["historyGroups"]["nodes"]
@@ -817,6 +819,11 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 			player["name"] = None
 			player["number"] = None
 			player["splashtag_title"] = None
+		if "third_team_players" in payload:
+			for player in payload["third_team_players"]:
+				player["name"] = None
+				player["number"] = None
+				player["splashtag_title"] = None
 
 		# fix battle json
 		for player in battle["myTeam"]["players"]:
@@ -1154,7 +1161,7 @@ def post_result(data, ismonitoring, isblackout, istestrun, overview_data=None):
 	'''Uploads battle/job JSON to stat.ink, and prints the returned URL or error message.'''
 
 	if len(API_KEY) != 43:
-		print("\nCannot post to stat.ink without a valid API key set in config.txt. Exiting.")
+		print("Cannot post to stat.ink without a valid API key set in config.txt. Exiting.")
 		sys.exit(0)
 
 	if isinstance(data, list): # -o export format
@@ -1914,7 +1921,7 @@ def main():
 	#############################
 	if file_paths: # 2 paths in list
 		if not utils.custom_key_exists("old_export_format", CONFIG_DATA):
-			if os.path.dirname(file_paths[0])[-7:] != "results" \
+			if os.path.dirname(os.path.join(file_paths[0], ''))[-7:] != "results" \
 			or os.path.basename(file_paths[1])[:8] != "overview":
 				print("Must pass in " + '\033[91m' + "results/" + '\033[0m' + " or " + \
 					'\033[91m' + "coop_results/" + '\033[0m' + " followed by an " +
